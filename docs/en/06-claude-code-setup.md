@@ -1,306 +1,451 @@
-# Step 6: Running Claude Code Remotely
+# Step 6: Running 8 Claude Code Agents in Parallel
 
-> **Goal:** Install and run Claude Code on your remote dev machine so you can interact with it from anywhere — your laptop, your phone, or any device that can SSH in.
+> **Goal:** Launch 8 independent Claude Code agents in tmux panes and manage them like a team of senior developers -- each one tackling a different task simultaneously.
 
-**Prerequisites:** [Step 5: Access from Your Phone](./05-mobile-access.md) completed.
-
----
-
-## Why Run Claude Code Remotely?
-
-Running Claude Code on a remote machine instead of locally has several advantages:
-
-- **Persistent sessions** — Claude Code runs inside tmux, so conversations and context survive disconnections. Start a long task, disconnect, reconnect hours later, and the output is waiting for you.
-- **Powerful hardware** — your dev server may have more CPU, RAM, and faster disk than your laptop. Builds, tests, and file operations are faster.
-- **Access from any device** — interact with Claude Code from your phone during a commute, from a tablet on the couch, or from a lightweight Chromebook.
-- **Consistent environment** — your dev tools, config files, repos, and database are all on one machine. No syncing between devices.
-- **Security** — your code never leaves the server. Tailscale encrypts the connection. No exposed ports.
-
-```mermaid
-graph TB
-    subgraph Remote Dev Machine
-        CC[Claude Code CLI]
-        R[Your Repos]
-        DB[Databases]
-        T[Dev Tools]
-        CC --> R
-        CC --> DB
-        CC --> T
-    end
-
-    L[Laptop] -->|Tailscale SSH| CC
-    P[Phone] -->|Tailscale SSH| CC
-    Tab[Tablet] -->|Tailscale SSH| CC
-
-    style CC fill:#cba6f7,color:#1e1e2e
-    style R fill:#89b4fa,color:#1e1e2e
-    style L fill:#a6e3a1,color:#1e1e2e
-    style P fill:#fab387,color:#1e1e2e
-    style Tab fill:#a6e3a1,color:#1e1e2e
-```
+**Prerequisites:** [Step 5: Access from Your Phone](./05-mobile-access.md) completed, Claude Code CLI installed.
 
 ---
 
-## Install Claude Code
+## The Concept
 
-### Prerequisites on the remote machine
+Claude Code is a terminal process. One terminal, one agent. But there is nothing stopping you from running eight of them at once.
 
-Claude Code requires Node.js 18+. Verify:
+tmux gives you the ability to tile multiple terminal panes inside a single window. Combine that with Claude Code, and you get **8 AI senior developers working in parallel** -- each one reading your codebase, writing code, running tests, and fixing bugs independently.
 
-```bash
-node --version
+You become the engineering manager. Your job is to:
+
+1. **Assign tasks** -- give each agent a clear, scoped objective
+2. **Monitor progress** -- zoom into panes to check status
+3. **Review and merge** -- inspect each agent's output before committing
+
+This is not theoretical. It works today, right now, with the tmux configuration from this guide.
+
+```
+┌──────────────────┬──────────────────┬──────────────────┬──────────────────┐
+│   Agent 1        │   Agent 2        │   Agent 3        │   Agent 4        │
+│   Unit tests     │   DB refactor    │   New endpoint   │   Bug fix #42    │
+│                  │                  │                  │                  │
+├──────────────────┼──────────────────┼──────────────────┼──────────────────┤
+│   Agent 5        │   Agent 6        │   Agent 7        │   Agent 8        │
+│   API docs       │   DB migration   │   PR review      │   Query optimize │
+│                  │                  │                  │                  │
+└──────────────────┴──────────────────┴──────────────────┴──────────────────┘
 ```
 
-If Node.js is not installed or is too old:
+Each pane is a fully independent Claude Code session with its own context, conversation history, and working directory. They do not interfere with each other.
+
+---
+
+## Prerequisites
+
+Before you start, make sure you have:
+
+- **Claude Code CLI** installed and authenticated on your remote machine
+- **tmux** configured per [Step 3: tmux Setup](./03-tmux-setup.md) of this guide
+- **A project** you want to work on (the agents need a codebase)
+
+### Install Claude Code (if not done yet)
 
 ```bash
-# Install Node.js via nvm (recommended)
+# Install Node.js via nvm (requires Node.js 18+)
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
 source ~/.bashrc
 nvm install --lts
-```
 
-### Install Claude Code CLI
-
-```bash
+# Install Claude Code
 npm install -g @anthropic-ai/claude-code
-```
 
-Verify the installation:
-
-```bash
-claude --version
-```
-
-### Authenticate
-
-Run Claude Code for the first time to authenticate:
-
-```bash
+# Authenticate (one-time)
 claude
 ```
 
-Follow the on-screen instructions to log in with your Anthropic account. This is a one-time setup — your authentication persists across sessions.
+---
+
+## The dev-session.sh Script
+
+The [`dev-session.sh`](../../configs/dev-session.sh) script is the launcher. It creates a tmux session with N panes arranged in a tiled grid -- one pane per agent.
+
+### Usage
+
+```bash
+# Default: 8 panes
+./configs/dev-session.sh
+
+# Custom count
+./configs/dev-session.sh 4     # 4 panes (smaller project, fewer tasks)
+./configs/dev-session.sh 8     # 8 panes (the sweet spot)
+./configs/dev-session.sh 12    # 12 panes (large project, many independent tasks)
+```
+
+### What it does
+
+1. Creates a tmux session named `agents`
+2. Splits the window into N panes
+3. Applies a **tiled layout** so all panes are evenly sized
+4. Prints a pane number label in each one (`Pane 1/8`, `Pane 2/8`, etc.)
+5. Selects pane 1 and attaches you to the session
+
+### Idempotency
+
+If the `agents` session already exists, the script simply reattaches to it. You will not accidentally create duplicate sessions.
+
+```bash
+# First run: creates session with 8 panes
+./configs/dev-session.sh 8
+
+# Second run: reattaches to existing session
+./configs/dev-session.sh 8
+# → "Session 'agents' already exists. Attaching..."
+```
+
+### The tiled layout
+
+tmux's `tiled` layout distributes panes as evenly as possible. For 8 panes, you get a clean 4x2 grid. For 4 panes, a 2x2 grid. For 12, a 4x3 grid. The layout auto-adjusts when you resize your terminal window.
 
 ---
 
-## Running Claude Code in tmux
+## Workflow: Assigning Tasks to Agents
 
-The ideal way to run Claude Code remotely is inside a dedicated tmux window. This way:
+Once the session is running, you have 8 empty shells waiting. Here is the workflow.
 
-- Claude Code survives SSH disconnections
-- You can switch between Claude Code and your editor/terminal with a keystroke
-- Long-running tasks (code generation, file edits) continue while you are away
+### Step 1: Navigate to each pane and launch Claude Code
 
-### Using dev-session.sh
+Use the keybindings from [Step 3: tmux Setup](./03-tmux-setup.md):
 
-The [`dev-session.sh`](../../configs/dev-session.sh) script automatically creates a tmux session with a dedicated Claude Code window:
-
-```bash
-./dev-session.sh
-```
-
-This creates four windows:
-
-| Window | Name | Purpose |
+| Action | Keybinding | Notes |
 |---|---|---|
-| 1 | `claude` | Claude Code CLI (auto-launched) |
-| 2 | `code` | Editor (top 70%) + Terminal (bottom 30%) |
-| 3 | `server` | Dev server (left) + Logs (right) |
-| 4 | `git` | Git operations |
+| Move between panes | `Alt + Arrow` | No prefix needed -- instant switching |
+| Zoom into a pane | `Ctrl-a + z` | Full screen. Press again to return to grid |
+| Resize a pane | `Ctrl-a + Ctrl+Arrow` | 5-cell increments |
 
-The script auto-launches `claude` in window 1 and focuses on it.
-
-### Manual setup
-
-If you prefer to set things up manually:
-
-```bash
-# Start a tmux session
-tmux new-session -s dev -n claude
-
-# Launch Claude Code
-claude
-
-# Create additional windows as needed
-# prefix + c → new window
-```
-
----
-
-## The Perfect tmux Layout for Claude Code
-
-Here is the recommended workflow:
-
-### Window 1: Claude Code (full screen)
-
-Give Claude Code the entire window. It produces long output — code diffs, explanations, multi-file changes — and having full screen space lets you review everything without scrolling.
-
-```
-┌───────────────────────────────────────┐
-│                                       │
-│            Claude Code                │
-│                                       │
-│  > Help me refactor the auth module   │
-│                                       │
-│  I'll analyze the current auth...     │
-│  [shows code, diffs, explanations]    │
-│                                       │
-│                                       │
-└───────────────────────────────────────┘
-```
-
-### Window 2: Code review
-
-After Claude Code makes changes, switch here to review:
-
-```
-┌───────────────────────────────────────┐
-│  vim src/auth/handler.ts              │
-│  (or any editor)                      │
-│                                       │
-│  Review the changes Claude made       │
-│                                       │
-├───────────────────────────────────────┤
-│  $ git diff                           │
-│  $ npm test                           │
-└───────────────────────────────────────┘
-```
-
-### Window 3: Running services
-
-Keep your dev server and logs visible:
-
-```
-┌──────────────────┬────────────────────┐
-│  $ npm run dev   │  $ tail -f app.log │
-│  Server running  │  [live log output] │
-│  on :3000        │                    │
-└──────────────────┴────────────────────┘
-```
-
-### Switching between windows
-
-```
-prefix + 1  →  Claude Code (ask questions, give instructions)
-prefix + 2  →  Review changes, run tests
-prefix + 3  →  Check server status, read logs
-prefix + 4  →  Git operations (commit, push, branch)
-```
-
-This switching pattern becomes muscle memory fast. Within a day you will be navigating instinctively.
-
----
-
-## Tips for Using Claude Code Remotely
-
-### 1. Keep Claude Code in its own window
-
-Do not put Claude Code in a pane alongside other tools. It needs screen width for code blocks and diffs. Use dedicated windows and switch between them.
-
-### 2. Use tmux-resurrect to preserve sessions
-
-If your server reboots, tmux-resurrect (configured in [Step 3](./03-tmux-setup.md)) will restore your window layout. You will need to re-launch Claude Code manually, but your conversation history is preserved by Claude Code itself.
-
-Save your tmux state explicitly before planned reboots:
-
-```
-prefix + Ctrl+s    (tmux-resurrect save)
-```
-
-After reboot:
-
-```bash
-tmux
-# tmux-continuum should auto-restore, or manually:
-# prefix + Ctrl+r    (tmux-resurrect restore)
-```
-
-Then in the `claude` window:
-
-```bash
-claude    # Re-launch; Claude Code restores its own conversation state
-```
-
-### 3. Use Claude Code's headless mode for long tasks
-
-If you are about to disconnect and want Claude Code to continue working, let it finish its current task. tmux ensures the process keeps running. When you reconnect, scroll up to see the output.
-
-### 4. Set up your project context
-
-Before starting Claude Code, navigate to your project root:
+In each pane, navigate to the project and launch Claude Code:
 
 ```bash
 cd ~/projects/my-app
 claude
 ```
 
-Claude Code reads your project structure, `package.json`, `CLAUDE.md`, and other context files to provide better assistance.
+> **Tip:** If you are using git worktrees (recommended -- see below), each pane should `cd` into a different worktree.
 
-### 5. Multiple projects, multiple sessions
+### Step 2: Give each agent a task
 
-For different projects, use separate tmux sessions:
+Here is an example of how you might distribute 8 tasks across 8 agents:
 
-```bash
-./dev-session.sh frontend
-./dev-session.sh backend
-./dev-session.sh infra
-```
+| Pane | Task |
+|---|---|
+| 1 | "Write unit tests for the auth module" |
+| 2 | "Refactor the database layer to use connection pooling" |
+| 3 | "Build the new /api/v2/users endpoint" |
+| 4 | "Fix bug #42 in the payment processing flow" |
+| 5 | "Write API documentation for all public endpoints" |
+| 6 | "Create the database migration for the v2 schema" |
+| 7 | "Review the changes in PR #128 and suggest improvements" |
+| 8 | "Profile and optimize the slow database queries" |
 
-Each session gets its own Claude Code instance, windows, and context.
+Each agent receives your instruction and starts working independently. They read the codebase, make changes, run commands, and report back -- all in their own pane.
+
+### Step 3: Monitor progress
+
+While the agents work, you can:
+
+- **Glance at the grid** to see high-level status (who is still working, who is waiting for input)
+- **Zoom into a pane** (`Ctrl-a + z`) to read detailed output, review code diffs, or answer follow-up questions
+- **Zoom back out** (`Ctrl-a + z` again) to return to the grid view
+- **Scroll up** in a pane (`Ctrl-a + [`, then arrow keys or Page Up) to see earlier output
+
+### Step 4: Review and merge
+
+When an agent finishes its task, zoom in, review its changes, and decide whether to commit. Do not blindly merge -- you are the manager, and every change should pass your review.
 
 ---
 
-## Security Considerations
+## Best Practices
 
-### What is encrypted
+### Use git worktrees for isolation
+
+This is the single most important practice. If all 8 agents work on the same directory, they will step on each other's changes and create merge conflicts.
+
+**Git worktrees** give each agent its own independent copy of the repository, all sharing the same `.git` directory. Changes in one worktree do not affect others.
+
+See the [Git Worktree Pattern](#git-worktree-pattern) section below for setup instructions.
+
+### Keep one pane as a command center (optional)
+
+Instead of 8 agents, use 7 agents + 1 regular shell. The shell pane is your command center for:
+
+- Running `git status` across worktrees
+- Monitoring system resources (`htop`, `btop`)
+- Running the dev server or watching logs
+- Coordinating merges
+
+```bash
+# Launch 8 panes but only run claude in 7 of them
+# Keep pane 8 as your shell
+./configs/dev-session.sh 8
+# In panes 1-7: type `claude`
+# In pane 8: use as regular terminal
+```
+
+### Check progress by zooming periodically
+
+Develop a rhythm: every 5-10 minutes, cycle through panes with `Alt + Arrow` to check who needs attention. Agents sometimes ask clarifying questions and wait for your input.
+
+### Merge results carefully
+
+After all agents finish:
+
+1. Zoom into each pane and review the changes
+2. In your command center pane, merge each worktree's branch into main one at a time
+3. Run tests after each merge to catch conflicts early
+4. Resolve any issues before merging the next branch
+
+### Name your session meaningfully
+
+```bash
+# Instead of the default "agents" name, create project-specific sessions
+tmux new-session -s my-project-agents -n agents
+```
+
+Or modify the `SESSION_NAME` variable in `dev-session.sh`:
+
+```bash
+SESSION_NAME="my-project"
+```
+
+---
+
+## Git Worktree Pattern
+
+This is the recommended setup for running multiple agents without conflicts.
+
+### Directory structure
 
 ```
-Phone/Laptop → [SSH encryption] → [WireGuard encryption] → Dev Machine
+~/projects/my-app/              # Main repo (main branch)
+~/projects/my-app-wt-1/         # Worktree for agent 1
+~/projects/my-app-wt-2/         # Worktree for agent 2
+~/projects/my-app-wt-3/         # Worktree for agent 3
+~/projects/my-app-wt-4/         # Worktree for agent 4
+~/projects/my-app-wt-5/         # Worktree for agent 5
+~/projects/my-app-wt-6/         # Worktree for agent 6
+~/projects/my-app-wt-7/         # Worktree for agent 7
+~/projects/my-app-wt-8/         # Worktree for agent 8 (or command center)
 ```
 
-Your Claude Code session is protected by two layers of encryption:
+### Setup commands
 
-1. **SSH protocol encryption** — encrypts the terminal session
-2. **WireGuard tunnel (Tailscale)** — encrypts all traffic between devices
+```bash
+cd ~/projects/my-app
+
+# Create worktrees with descriptive branch names
+git worktree add ../my-app-wt-1 -b agent/auth-tests
+git worktree add ../my-app-wt-2 -b agent/db-refactor
+git worktree add ../my-app-wt-3 -b agent/api-v2-users
+git worktree add ../my-app-wt-4 -b agent/fix-payment-bug
+git worktree add ../my-app-wt-5 -b agent/api-docs
+git worktree add ../my-app-wt-6 -b agent/db-migration
+git worktree add ../my-app-wt-7 -b agent/pr-review
+git worktree add ../my-app-wt-8 -b agent/query-optimization
+```
+
+### In each tmux pane
+
+After launching `dev-session.sh 8`, go to each pane and point it to the right worktree:
+
+```bash
+# Pane 1
+cd ~/projects/my-app-wt-1
+claude
+
+# Pane 2
+cd ~/projects/my-app-wt-2
+claude
+
+# ... and so on for each pane
+```
+
+### Verify worktrees
+
+```bash
+git worktree list
+# ~/projects/my-app           abcd123 [main]
+# ~/projects/my-app-wt-1      abcd123 [agent/auth-tests]
+# ~/projects/my-app-wt-2      abcd123 [agent/db-refactor]
+# ...
+```
+
+### Cleanup after merging
+
+```bash
+cd ~/projects/my-app
+
+# Remove worktrees when done
+git worktree remove ../my-app-wt-1
+git worktree remove ../my-app-wt-2
+# ... repeat for all
+
+# Prune any stale references
+git worktree prune
+
+# Delete merged branches
+git branch -d agent/auth-tests agent/db-refactor agent/api-v2-users
+```
+
+---
+
+## Scaling: 4 vs 8 vs 12+ Panes
+
+### When to use 4 panes
+
+- Smaller projects with fewer independent tasks
+- Limited screen real estate (laptop screen)
+- You want to read each agent's output comfortably without zooming
+
+### When to use 8 panes (recommended)
+
+- Medium to large projects with many independent modules
+- You have a large monitor or are working over SSH (terminal can be any size)
+- The sweet spot between parallelism and manageability
+
+### When to use 12+ panes
+
+- Very large codebases with many independent subsystems
+- Sprint-planning scenarios where you want to knock out a dozen tasks at once
+- You are comfortable managing many agents and have a systematic workflow
+
+### Resource considerations
+
+| Resource | Impact | Notes |
+|---|---|---|
+| **CPU** | Low | Claude Code itself is lightweight -- it sends requests to the API and applies changes locally |
+| **Memory** | Low-moderate | Each Claude Code process uses ~100-200 MB. 8 agents = ~1-1.5 GB |
+| **Network** | Moderate | Each agent makes API calls to Anthropic. 8 agents means 8x the API traffic |
+| **API rate limits** | Main bottleneck | Check your Anthropic plan's rate limits. If you hit limits, reduce the number of concurrent agents |
+| **Disk I/O** | Low-moderate | Agents read/write files and run commands. SSDs handle this easily |
+
+> **Warning:** If you are on an Anthropic plan with strict rate limits, 8 concurrent agents can exhaust your quota quickly. Monitor your usage and adjust the number of agents accordingly.
+
+---
+
+## The Full Lifecycle
+
+Here is the complete flow from start to finish:
+
+### 1. Plan your tasks
+
+Before launching agents, decide what work needs to be done. Write down 4-8 independent tasks that do not depend on each other.
+
+### 2. Create worktrees
+
+```bash
+cd ~/projects/my-app
+for i in $(seq 1 8); do
+    git worktree add ../my-app-wt-$i -b agent/task-$i
+done
+```
+
+### 3. Launch the agent grid
+
+```bash
+./configs/dev-session.sh 8
+```
+
+### 4. Assign tasks
+
+Cycle through each pane (`Alt + Arrow`), `cd` into the corresponding worktree, launch `claude`, and give it the task.
+
+### 5. Monitor
+
+Check progress periodically. Answer questions when agents ask. Zoom in with `Ctrl-a + z` to review detailed output.
+
+### 6. Review
+
+When agents finish, review each one's changes carefully. Run tests. Read diffs.
+
+### 7. Merge
+
+From your main repo (or command center pane), merge each branch:
+
+```bash
+cd ~/projects/my-app
+git merge agent/auth-tests
+git merge agent/db-refactor
+# ... resolve conflicts if any, run tests between merges
+```
+
+### 8. Cleanup
+
+```bash
+# Remove all worktrees
+for i in $(seq 1 8); do
+    git worktree remove ../my-app-wt-$i
+done
+git worktree prune
+
+# Kill the tmux session
+tmux kill-session -t agents
+```
+
+Your main repo is clean, all work is merged, and you just accomplished in one session what would normally take a team a full day.
+
+---
+
+## Security
+
+All of this runs over Tailscale, which means:
+
+### Everything is encrypted
+
+```
+Your device → [SSH encryption] → [WireGuard encryption (Tailscale)] → Dev machine
+                                                                        ↓
+                                                                   8 Claude Code agents
+                                                                   reading/writing code
+```
+
+Two layers of encryption protect every keystroke and every line of code.
 
 ### No exposed ports
 
-Your dev machine does not expose any ports to the public internet. Tailscale SSH operates entirely within the WireGuard tunnel. An attacker cannot even discover your machine, let alone connect to it.
+Your dev machine has zero ports open to the public internet. Tailscale SSH operates entirely within the WireGuard tunnel. Attackers cannot discover your machine, let alone connect to it. See [Step 1: Tailscale Setup](./01-tailscale-setup.md) for details.
 
 ### Code stays on the server
 
-When you use Claude Code remotely, your code never transfers to your local device. You are just sending keystrokes and receiving terminal output over the encrypted tunnel. This is especially relevant for sensitive codebases.
+When you work remotely over SSH, your code never transfers to your local device. You send keystrokes; you receive terminal output. This is critical for proprietary codebases -- the source code never leaves the secure server.
 
-### Authentication chain
+### API keys stay on the server
 
-```
-Your identity provider (Google/GitHub/etc.)
-    → Tailscale authentication
-        → Tailscale SSH certificate
-            → tmux session on the server
-                → Claude Code
-```
+Your Anthropic API key (or Claude Pro/Max session) is configured on the remote machine only. It never appears on your laptop, phone, or any client device. Even if your client device is compromised, your API credentials are safe.
 
-Every step in this chain is authenticated and encrypted.
+### Perfect for proprietary work
+
+This setup is ideal for working with sensitive codebases:
+
+- Code is isolated on a server behind Tailscale
+- No cloud IDE, no code syncing, no third-party access
+- SSH + WireGuard encryption in transit
+- Full disk encryption at rest (configure on your server)
+- 8 agents working on your code, all contained within your infrastructure
 
 ---
 
 ## Summary
 
-At this point, you should have:
+At this point, you have:
 
 - [x] Claude Code installed on your remote dev machine
-- [x] A tmux workflow for running Claude Code in a dedicated window
-- [x] The `dev-session.sh` script for quick environment setup
-- [x] An understanding of the security model
+- [x] The `dev-session.sh` script for launching N agents in a tmux grid
+- [x] A workflow for assigning, monitoring, and reviewing parallel agent work
+- [x] Git worktree patterns for safe multi-agent development
+- [x] An understanding of scaling and resource considerations
+- [x] All traffic encrypted via Tailscale -- code and keys never leave the server
 
-Your complete setup is now:
+The complete stack:
 
 ```
-Tailscale (networking) → SSH (access) → tmux (persistence) → Claude Code (development)
+Tailscale (networking) → SSH (access) → tmux (8 panes) → 8x Claude Code (parallel development)
 ```
 
-You can code from anywhere, on any device, with AI assistance, and never lose your work.
+You are no longer a solo developer with an AI assistant. You are an engineering manager with a team of 8 AI senior developers, accessible from any device, anywhere in the world.
 
-**Next:** [Advanced Tips & Tricks](./07-advanced-tips.md) — power-user configurations, automation, and optimization.
+**Next:** [Advanced Tips & Tricks](./07-advanced-tips.md) -- power-user configurations, automation, and optimization.

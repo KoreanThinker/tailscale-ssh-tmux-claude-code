@@ -1,6 +1,6 @@
 # Tailscale + SSH + tmux + Claude Code
 
-### The ultimate guide to remote development from anywhere — even your phone.
+### Run 8 Claude Code agents in parallel from anywhere — even your phone.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -9,64 +9,67 @@
 
 ---
 
+## The Idea
+
+One powerful dev machine. Eight Claude Code agents running simultaneously in tmux panes. Each working on a different task — one writing tests, one refactoring, one building a new feature, one fixing bugs. All accessible from your laptop, phone, or tablet through Tailscale's encrypted mesh network.
+
+```mermaid
+graph TB
+    subgraph You - from anywhere
+        A[Laptop at cafe]
+        B[Phone on subway]
+    end
+
+    subgraph Tailscale - encrypted mesh VPN
+        C{WireGuard P2P}
+    end
+
+    subgraph Dev Server - tmux session
+        D["Pane 1: claude — writing tests"]
+        E["Pane 2: claude — refactoring auth"]
+        F["Pane 3: claude — new API endpoint"]
+        G["Pane 4: claude — fixing bug #42"]
+        H["Pane 5: claude — writing docs"]
+        I["Pane 6: claude — database migration"]
+        J["Pane 7: claude — code review"]
+        K["Pane 8: claude — performance tuning"]
+    end
+
+    A -->|SSH| C
+    B -->|SSH| C
+    C --> D & E & F & G & H & I & J & K
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                                                                 │
-│   You         Tailscale (WireGuard mesh VPN)      Dev Server    │
-│                                                                 │
-│  ┌──────┐         ┌──────────────┐              ┌──────────┐   │
-│  │Laptop│────────▶│  Encrypted   │─────────────▶│  tmux    │   │
-│  │Phone │────────▶│  P2P Tunnel  │─────────────▶│  + SSH   │   │
-│  │Tablet│────────▶│  (WireGuard) │─────────────▶│  + Claude│   │
-│  └──────┘         └──────────────┘              └──────────┘   │
-│                                                                 │
-│   Access from anywhere. No port forwarding. No public IP.       │
-│   Encrypted end-to-end. Sessions persist across disconnects.    │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
 
-## The Problem
-
-You have a powerful dev machine at home or in the cloud. You want to:
-- Run [Claude Code](https://claude.ai/code) on it from your laptop at a coffee shop
-- Continue a session from your phone while commuting
-- Never lose work when your connection drops
-- Not deal with SSH keys, port forwarding, dynamic DNS, or VPNs that suck
-
-## The Solution
-
-**Tailscale** creates an encrypted mesh network between your devices — no config needed.
-**SSH** gives you a secure terminal connection to your dev machine.
-**tmux** keeps your sessions alive even when you disconnect.
-**Claude Code** runs in tmux, accessible from any device in your tailnet.
-
-> **Result**: Start Claude Code on your server, SSH in from your laptop, disconnect, SSH in from your phone, pick up exactly where you left off.
+> **Start 8 agents on your server. SSH in from your laptop. Disconnect. SSH in from your phone. All 8 agents are still running, exactly where you left them.**
 
 ## What You'll Build
 
 ```
-┌─────────── tmux session "dev" ──────────────────────────────────┐
-│                                                                  │
-│  ┌─ Window 1: claude ──────────────────────────────────────────┐│
-│  │ $ claude                                                     ││
-│  │ ╭────────────────────────────────────────────╮               ││
-│  │ │  Claude Code CLI - Ready                   │               ││
-│  │ │  Working on: ~/projects/my-app             │               ││
-│  │ ╰────────────────────────────────────────────╯               ││
-│  └──────────────────────────────────────────────────────────────┘│
-│  ┌─ Window 2: code ───────────────────┬─────────────────────────┐│
-│  │ $ vim src/app.tsx                  │ $ npm run dev            ││
-│  │                                    │ Server running on :3000  ││
-│  │  (editor - 70%)                    │ (server - 30%)          ││
-│  └────────────────────────────────────┴─────────────────────────┘│
-│  ┌─ Window 3: git ─────────────────────────────────────────────┐│
-│  │ $ git status                                                 ││
-│  └──────────────────────────────────────────────────────────────┘│
-│                                                                  │
-│  [dev] 1:claude* 2:code 3:git                  2025-04-07 14:30 │
-└──────────────────────────────────────────────────────────────────┘
+┌─ tmux: 8 Claude Code agents ──────────────────────────────┐
+│                                                            │
+│  ┌─ Pane 1 ──────────┬─ Pane 2 ──────────┐               │
+│  │ claude             │ claude             │               │
+│  │ > Writing tests    │ > Refactoring auth │               │
+│  │   for user API...  │   module...        │               │
+│  ├─ Pane 3 ──────────┼─ Pane 4 ──────────┤               │
+│  │ claude             │ claude             │               │
+│  │ > Building new     │ > Fixing bug #42   │               │
+│  │   REST endpoint... │   in payments...   │               │
+│  ├─ Pane 5 ──────────┼─ Pane 6 ──────────┤               │
+│  │ claude             │ claude             │               │
+│  │ > Writing API      │ > DB migration     │               │
+│  │   documentation... │   for v2 schema... │               │
+│  ├─ Pane 7 ──────────┼─ Pane 8 ──────────┤               │
+│  │ claude             │ claude             │               │
+│  │ > Reviewing PR     │ > Optimizing       │               │
+│  │   #128 changes...  │   query perf...    │               │
+│  └───────────────────┴────────────────────┘               │
+│                                                            │
+│  [agents] 1:agents*                       2025-04-07 14:30 │
+└────────────────────────────────────────────────────────────┘
 ```
+
+**Why 8 in parallel?** Because each Claude Code agent works independently in its own git worktree or project directory. You assign tasks, switch between panes to monitor progress, and merge results. It's like having a team of 8 senior developers — but they never sleep and never complain.
 
 ## Quick Start (5 minutes)
 
@@ -83,16 +86,43 @@ tailscale set --ssh
 ssh user@your-server-name
 
 # 4. Install tmux + Claude Code on the server
-sudo apt install tmux        # or: brew install tmux
+sudo apt install tmux
 npm install -g @anthropic-ai/claude-code
 
-# 5. Start a persistent dev session
-tmux new -s dev
-claude
-# Detach: Ctrl-a + d  |  Reattach later: tmux a -t dev
+# 5. Launch 8 Claude Code agents in parallel!
+./configs/dev-session.sh 8
+# → Creates a tmux session with 8 panes, each ready for claude
+
+# 6. Assign tasks to each pane
+# Switch panes: Alt + Arrow keys (no prefix needed)
+# Zoom into a pane: Ctrl-a + z
+# Detach (agents keep running): Ctrl-a + d
+# Reattach from anywhere: tmux a -t agents
 ```
 
-That's it. You now have a persistent Claude Code session accessible from anywhere.
+## The Workflow
+
+```mermaid
+sequenceDiagram
+    participant You
+    participant Tailscale
+    participant Server
+    participant tmux
+    participant Claude as Claude Code x8
+
+    You->>Tailscale: Connect from laptop
+    Tailscale->>Server: Encrypted SSH tunnel
+    Server->>tmux: Create session "agents"
+    tmux->>Claude: Launch 8 panes with claude
+    You->>Claude: Assign tasks to each pane
+    Note over Claude: All 8 agents working...
+    You-->>Tailscale: Disconnect (close laptop)
+    Note over Claude: Still running!
+    You->>Tailscale: Reconnect from phone
+    Tailscale->>Server: SSH tunnel
+    Server->>tmux: tmux a -t agents
+    Note over You,Claude: All 8 agents still there,<br/>exactly where you left them
+```
 
 ## Full Guide
 
@@ -103,69 +133,37 @@ That's it. You now have a persistent Claude Code session accessible from anywher
 | 3 | Install & Configure tmux | [English](docs/en/03-tmux-setup.md) | [한국어](docs/ko/03-tmux-setup.md) |
 | 4 | tmux Panes & Workflow | [English](docs/en/04-tmux-workflow.md) | [한국어](docs/ko/04-tmux-workflow.md) |
 | 5 | Access from Your Phone | [English](docs/en/05-mobile-access.md) | [한국어](docs/ko/05-mobile-access.md) |
-| 6 | Running Claude Code Remotely | [English](docs/en/06-claude-code-setup.md) | [한국어](docs/ko/06-claude-code-setup.md) |
+| 6 | Running 8 Claude Codes in Parallel | [English](docs/en/06-claude-code-setup.md) | [한국어](docs/ko/06-claude-code-setup.md) |
 | 7 | Advanced Tips & Tricks | [English](docs/en/07-advanced-tips.md) | [한국어](docs/ko/07-advanced-tips.md) |
 
-## Architecture
+## Why This Stack?
 
-```mermaid
-graph LR
-    subgraph Your Devices
-        A[Laptop]
-        B[Phone]
-        C[Tablet]
-    end
-
-    subgraph Tailscale Network
-        D{WireGuard<br/>Mesh VPN}
-    end
-
-    subgraph Dev Server
-        E[SSH Server]
-        F[tmux]
-        G[Claude Code]
-        H[Your Project]
-    end
-
-    A -->|Tailscale| D
-    B -->|Tailscale| D
-    C -->|Tailscale| D
-    D -->|Encrypted P2P| E
-    E --> F
-    F --> G
-    F --> H
-```
+| Tool | What it does |
+|------|-------------|
+| **Tailscale** | Encrypted mesh VPN. No port forwarding, no public IP. Works behind any NAT. Free. |
+| **Tailscale SSH** | Replaces SSH keys entirely. Automatic key management + SSO. |
+| **tmux** | Terminal multiplexer. 8 panes in one session. Survives disconnects. |
+| **Claude Code** | AI coding agent in the terminal. Perfect for headless remote sessions. |
+| **Termius** | Best mobile SSH client. Manage your agents from your phone. |
 
 ## Included Configs
 
 | File | Description |
 |------|-------------|
-| [`configs/.tmux.conf`](configs/.tmux.conf) | Production-grade tmux config with sensible defaults, intuitive keybindings, and plugin setup |
-| [`configs/dev-session.sh`](configs/dev-session.sh) | Script to create a predefined tmux layout for Claude Code development |
-
-## Why This Stack?
-
-| Tool | Problem it solves | Alternative | Why this is better |
-|------|-------------------|-------------|-------------------|
-| **Tailscale** | Network access | Port forwarding, ngrok, traditional VPN | Zero config, works behind NAT, P2P encrypted, free tier |
-| **Tailscale SSH** | Authentication | SSH keys, certificates | Automatic key management, SSO integration, ACL policies |
-| **tmux** | Session persistence | screen, Zellij, nohup | Battle-tested, powerful panes, huge ecosystem, scriptable |
-| **Claude Code** | AI-assisted coding | — | Runs in terminal, perfect for remote tmux sessions |
-| **Termius** | Mobile SSH | Blink Shell, JuiceSSH | Cross-platform, great UX, keyboard shortcuts, SFTP |
+| [`configs/.tmux.conf`](configs/.tmux.conf) | Production-grade tmux config — Ctrl-a prefix, intuitive splits, mouse support, plugins |
+| [`configs/dev-session.sh`](configs/dev-session.sh) | Launch script — creates N Claude Code panes in a tiled layout (default: 8) |
 
 ## Prerequisites
 
-- A server or desktop you want to remote into (Linux recommended, macOS works too)
+- A server or desktop to remote into (Linux recommended, macOS works too)
 - A client device (laptop, phone, or tablet)
-- A Tailscale account ([free for personal use](https://tailscale.com/pricing))
+- [Tailscale account](https://tailscale.com/pricing) (free for personal use)
 - Node.js 18+ (for Claude Code)
 
 ## Contributing
 
-Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-Found this useful? Give it a star and share it with others who work remotely.
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-[MIT](LICENSE) — use it however you want.
+[MIT](LICENSE)

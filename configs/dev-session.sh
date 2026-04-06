@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  dev-session.sh — Tmux Development Session Launcher
-#  Creates a pre-configured tmux workspace for remote development
+#  dev-session.sh — Launch N Claude Code agents in tmux panes
 #
 #  Usage:
-#    ./dev-session.sh              # Create/attach "dev" session
-#    ./dev-session.sh my-project   # Create/attach "my-project" session
+#    ./dev-session.sh          # 8 Claude Code panes (default)
+#    ./dev-session.sh 4        # 4 Claude Code panes
+#    ./dev-session.sh 12       # 12 Claude Code panes
+#
+#  Each pane starts a shell ready for `claude`. The layout is auto-tiled.
+#  Detach with Ctrl-a + d. Reattach with: tmux a -t agents
 # =============================================================================
 set -euo pipefail
 
-SESSION_NAME="${1:-dev}"
+NUM_PANES="${1:-8}"
+SESSION_NAME="agents"
 
 # ---------------------------------------------------------------------------
 #  Idempotency: attach to existing session if it already exists
@@ -19,38 +23,37 @@ if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
     exec tmux attach-session -t "$SESSION_NAME"
 fi
 
-echo "Creating new tmux session: $SESSION_NAME"
+echo "Creating tmux session '$SESSION_NAME' with $NUM_PANES Claude Code panes..."
 
 # ---------------------------------------------------------------------------
-#  Window 1: claude — Claude Code CLI
+#  Create the session with the first pane
 # ---------------------------------------------------------------------------
-tmux new-session -d -s "$SESSION_NAME" -n "claude"
-tmux send-keys -t "$SESSION_NAME:claude" "claude" Enter
+tmux new-session -d -s "$SESSION_NAME" -n "agents"
 
 # ---------------------------------------------------------------------------
-#  Window 2: code — Editor (top 70%) + Terminal (bottom 30%)
+#  Create remaining panes (N-1 splits)
 # ---------------------------------------------------------------------------
-tmux new-window -t "$SESSION_NAME" -n "code"
-# The window starts as one pane (editor area)
-tmux split-window -t "$SESSION_NAME:code" -v -p 30
-# Focus back on the top pane (editor)
-tmux select-pane -t "$SESSION_NAME:code.1"
+for ((i = 2; i <= NUM_PANES; i++)); do
+    tmux split-window -t "$SESSION_NAME:agents"
+    # Re-tile after each split to keep things balanced
+    tmux select-layout -t "$SESSION_NAME:agents" tiled
+done
 
 # ---------------------------------------------------------------------------
-#  Window 3: server — Server (left) + Logs (right)
+#  Final tiled layout
 # ---------------------------------------------------------------------------
-tmux new-window -t "$SESSION_NAME" -n "server"
-tmux split-window -t "$SESSION_NAME:server" -h -p 50
-# Focus on the left pane (server)
-tmux select-pane -t "$SESSION_NAME:server.1"
+tmux select-layout -t "$SESSION_NAME:agents" tiled
 
 # ---------------------------------------------------------------------------
-#  Window 4: git — Git operations (single pane)
+#  Print instructions in each pane
 # ---------------------------------------------------------------------------
-tmux new-window -t "$SESSION_NAME" -n "git"
+for ((i = 1; i <= NUM_PANES; i++)); do
+    tmux send-keys -t "$SESSION_NAME:agents.$i" \
+        "echo '── Pane $i/$NUM_PANES ── Type: claude'" Enter
+done
 
 # ---------------------------------------------------------------------------
-#  Final setup: select the first window and attach
+#  Select first pane and attach
 # ---------------------------------------------------------------------------
-tmux select-window -t "$SESSION_NAME:claude"
+tmux select-pane -t "$SESSION_NAME:agents.1"
 exec tmux attach-session -t "$SESSION_NAME"
